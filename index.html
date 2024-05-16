@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Only Animals</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            color: white;
+        }
+
+        #video-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow-y: auto;
+            scroll-snap-type: y mandatory;
+        }
+
+        .video-item {
+            scroll-snap-align: start;
+            flex: 1 0 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        .video-item iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .favorite-btn {
+            position: absolute;
+            bottom: 50px;
+            right: 40px;
+            background-color: rgba(53, 188, 58, 0.7);
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+
+        .hamburger-btn {
+            position: fixed;
+            top: 20px;
+            right: 40px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            font-size: 24px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            z-index: 1001;
+        }
+
+        .menu {
+            position: fixed;
+            top: 0;
+            left: -300px;
+            width: 120px;
+            height: 100%;
+            background-color: #333;
+            color: white;
+            padding: 20px;
+            transition: left 0.3s;
+            z-index: 1000;
+        }
+
+        .menu.active {
+            left: 0;
+        }
+
+        .menu a {
+            display: block;
+            color: white;
+            text-decoration: none;
+            padding: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <button class="hamburger-btn" onclick="toggleMenu()">☰</button>
+        <div class="menu" id="menu">
+            <a href="index.html">Home</a>
+            <a href="favorites.html">Favorites</a>
+        </div>
+        <div id="video-container"></div>
+    </div>
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            let nextPageToken = '';
+            let isFetching = false;
+            let favorites = JSON.parse(localStorage.getItem('favorites')) || [];
+            const itemsPerPage = 10;
+            const videoDisplayQueue = []; // Queue to manage displayed videos
+            const maxQueueSize = 50; // Maximum number of videos to keep in memory
+
+            function saveFavorite(videoId, title, description) {
+                const video = { videoId, title, description };
+                if (!favorites.some(fav => fav.videoId === videoId)) {
+                    favorites.push(video);
+                    localStorage.setItem('favorites', JSON.stringify(favorites));
+                    alert('Video favorited!');
+                } else {
+                    alert('Video already favorited!');
+                }
+            }
+
+            async function fetchVideos(query, pageToken = '') {
+                const apiKey = 'AIzaSyAKbgoo1HhuBo1Tn72wbGzordyCzOTPo_U'; // Replace with your YouTube API key
+                const maxResults = 10;
+                let url = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${query}&key=${apiKey}&type=video&maxResults=${maxResults}`;
+                
+                if (pageToken) {
+                    url += `&pageToken=${pageToken}`;
+                }
+
+                try {
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    nextPageToken = data.nextPageToken;
+                    return data.items;
+                } catch (error) {
+                    console.error('Error fetching videos:', error);
+                    return [];
+                }
+            }
+
+            async function fetchAndDisplayInitialVideos() {
+                const videos = await fetchVideos('animals');
+                const filteredVideos = videos.filter(video => !favorites.some(fav => fav.videoId === video.id.videoId));
+                videoDisplayQueue.push(...filteredVideos);
+                displayVideos(filteredVideos);
+            }
+
+            async function fetchRelatedVideos(videoId) {
+                const apiKey = 'AIzaSyAKbgoo1HhuBo1Tn72wbGzordyCzOTPo_U'; // Replace with your YouTube API key
+                const maxResults = 5;
+                const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&relatedToVideoId=${videoId}&key=${apiKey}&type=video&maxResults=${maxResults}`;
+
+                try {
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    return data.items;
+                } catch (error) {
+                    console.error('Error fetching related videos:', error);
+                    return [];
+                }
+            }
+
+            async function fetchAndDisplayRelatedVideos() {
+                if (isFetching || favorites.length === 0) return;
+                isFetching = true;
+
+                const videoId = favorites[Math.floor(Math.random() * favorites.length)].videoId;
+                const relatedVideos = await fetchRelatedVideos(videoId);
+                const filteredVideos = relatedVideos.filter(video => !favorites.some(fav => fav.videoId === video.id.videoId));
+
+                videoDisplayQueue.push(...filteredVideos);
+                displayVideos(filteredVideos);
+                isFetching = false;
+            }
+
+            function displayVideos(videos) {
+                const videoContainer = document.getElementById('video-container');
+                videos.forEach(video => {
+                    const videoItem = document.createElement('div');
+                    videoItem.classList.add('video-item');
+                    videoItem.innerHTML = `
+                        <iframe class="video-iframe" src="https://www.youtube.com/embed/${video.id.videoId}?autoplay=1&mute=1&enablejsapi=1" frameborder="0" allowfullscreen></iframe>
+                        <button class="favorite-btn" onclick="saveFavorite('${video.id.videoId}', '${video.snippet.title}', '${video.snippet.description}')">Favorite</button>
+                    `;
+                    videoContainer.appendChild(videoItem);
+                });
+
+                // Remove excess videos to maintain the queue size
+                while (videoDisplayQueue.length > maxQueueSize) {
+                    videoDisplayQueue.shift();
+                    videoContainer.removeChild(videoContainer.firstChild);
+                }
+            }
+
+            async function loadMoreVideos() {
+                const videos = await fetchVideos('animals', nextPageToken);
+                const filteredVideos = videos.filter(video => !favorites.some(fav => fav.videoId === video.id.videoId));
+                videoDisplayQueue.push(...filteredVideos);
+                displayVideos(filteredVideos);
+            }
+
+            function loadPreviousVideos() {
+                if (videoDisplayQueue.length > itemsPerPage) {
+                    const previousVideos = videoDisplayQueue.splice(-itemsPerPage, itemsPerPage);
+                    const videoContainer = document.getElementById('video-container');
+                    videoContainer.innerHTML = ''; // Clear current videos
+                    displayVideos(previousVideos);
+                }
+            }
+
+            const videoContainer = document.getElementById('video-container');
+            videoContainer.addEventListener('scroll', () => {
+                if (videoContainer.scrollTop + videoContainer.clientHeight >= videoContainer.scrollHeight - 50) {
+                    loadMoreVideos();
+                } else if (videoContainer.scrollTop === 0) {
+                    loadPreviousVideos();
+                }
+            });
+
+            function toggleMenu() {
+                const menu = document.getElementById('menu');
+                menu.classList.toggle('active');
+            }
+
+            fetchAndDisplayInitialVideos();
+
+            window.saveFavorite = saveFavorite;
+            window.toggleMenu = toggleMenu;
+        });
+    </script>
+</body>
+</html>
